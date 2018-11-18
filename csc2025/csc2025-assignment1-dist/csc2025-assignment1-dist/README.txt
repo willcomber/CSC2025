@@ -280,7 +280,7 @@ There are comments in the body of the function in obj_store.c to help you.
 READ THE MAN PAGE for any system library function you use.
  
 ADDITIONAL RULE
-
++
 For filesystem operations in store_obj you must only use the following functions: 
 
     open

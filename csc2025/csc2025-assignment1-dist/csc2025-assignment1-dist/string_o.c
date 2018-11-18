@@ -78,17 +78,12 @@ String newString(char *value) {
         errno = EINVAL;
         return NULL;
     }
-    int size = strnlen(value, STR_LEN_MAX);
-
-    if (malloc(sizeof(struct string)) == 0) {
-        errno = ENOMEM;
-        return NULL;
-    }
 
     self = (String) malloc(sizeof(struct string));
 
     if (self) {
-        char *c = strndup(value, size + 1);
+        int size = strnlen(value, STR_LEN_MAX);
+        char *c = strndup(value, size);
         self->_val = c;
         self->add = _add;
         self->char_at = _char_at;
@@ -102,6 +97,7 @@ String newString(char *value) {
 
     if (ostore_is_on() && !store_obj(self, _new_str_rep)) {
         /* ostore is on but failed to store object */
+        free(self->_val);
         free(self);
         self = NULL;
     }
@@ -180,17 +176,18 @@ String _add(String self, String s) {
  * specification of this function
  */
 char _char_at(String self, int posn) {
-    if (!self || posn < 0 || self->_len < 0) {
+    if (!self || posn < 0) {
         errno = EINVAL;
         return 0;
-    } else if (posn >= self->_len && self->_len != 0) {
-        errno = EINVAL;
-        return 0;
-    } else if(self->_len == 0){
-        return 0;
-    }else {
-        return self->_val[posn];
     }
+    if (posn >= self->_len && self->_len != 0) {
+        errno = EINVAL;
+        return 0;
+    }
+    if (self->_len == 0) {
+        return 0;
+    }
+    return self->_val[posn];
 }
 
 /* 
@@ -212,11 +209,13 @@ bool _equals(String self, String s) {
  * specification of this function
  */
 char *_get_value(String self, char *buf) {
-    if (self && buf) {
-        char* c = (char *) strncpy(buf, self->_val, self->_len);
-        c[sizeof(c)] = "\0";
-        return c;
+    if (!self || !buf) {
+        errno = EINVAL;
+        return NULL;
     }
+    (void) strncpy(buf, self->_val, self->_len);
+    buf[self->_len] = '\0';
+    return buf;
 }
 
 /* 
@@ -225,6 +224,18 @@ char *_get_value(String self, char *buf) {
  * specification of this function
  */
 int _index_of(String self, char c, int start) {
+    if (self && c) {
+        if (start < self->_len && start >= 0) {
+            char *cpy = self->_val;
+            for (int i = start; i < self->_len; i++) {
+                if (cpy[i] == c) {
+                    return i;
+                }
+            }
+            return -1;
+        }
+    }
+    errno = EINVAL;
     return -1;
 }
 

@@ -474,7 +474,6 @@ int test_get_value_norm() {
         String s = create_test_str(-1);
 
         char buf[s->length(s) + 1];
-
         char *val = s->get_value(s, buf);
 
         assert_notidentical(++test_case, __LINE__, val, s->_val);
@@ -487,7 +486,6 @@ int test_get_value_norm() {
                   0);
 
         String t = newString(val);
-
         assert_true(++test_case, __LINE__, s->equals(s, t));
 
         deleteString(&s);
