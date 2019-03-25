@@ -3,24 +3,19 @@ package coursework;
 import static spark.Spark.*;
 
 import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileWriter;
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.LogManager;
 import org.apache.spark.SparkConf;
-import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Encoders;
 import org.apache.spark.sql.Row;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.api.java.function.*;
-import org.apache.spark.sql.Column;
 
 import classTutorial.Messages;
 
@@ -36,6 +31,7 @@ public class Coursework {
 	static JavaSparkContext sc = new JavaSparkContext(conf);
 	static SparkSession spark = SparkSession.builder().appName("Java Spark SQL basic example") //$NON-NLS-1$
 			.config("spark.some.config.option", "some-value").getOrCreate(); //$NON-NLS-1$ //$NON-NLS-2$
+	private static String separator = format("------------------", "------------------");
 
 	public static void main(String[] args) {
 
@@ -69,9 +65,9 @@ public class Coursework {
 		try {
 			List<String> rows = idGenre.collectAsList();
 			PrintWriter out = new PrintWriter(new File(PATH + "/movieGenres.csv"));
-			out.println("movieId,genres"); // print header
+			out.println("movieId,genre"); // save header
 			for (String row : rows) {
-				out.println(row); // print each row (already formatted)
+				out.println(row); // save each row (already formatted)
 			}
 			out.close(); // close print writer
 			System.out.println("Succesfully written to file");
@@ -82,13 +78,16 @@ public class Coursework {
 
 		// Step 3
 		System.out.println("\n****** Step 3 ******");
+		// read in file created in step 2
 		Dataset<Row> movieGenres = spark.read().option("inferSchema", true).option("header", true)
-				.option("multLine", true).option("mode", "DROPMALFORMED").csv(PATH + "/movieGenres.csv"); // read in
-																											// file
-		movieGenres.createOrReplaceTempView("IdGenre"); // allow sql to use dataset
+				.option("multLine", true).option("mode", "DROPMALFORMED").csv(PATH + "/movieGenres.csv"); 
+		
+		movieGenres.createOrReplaceTempView("IdGenre"); // allow sql to use
+														// dataset
 
 		movieGenres.printSchema();
-		movieGenres.orderBy(movieGenres.col("movieId").desc()).show(50);// show 50 ordered by highest movieId first
+		movieGenres.orderBy(movieGenres.col("movieId").desc()).show(50);
+		// show 50 ordered by highest movieId first
 
 		// Step 4
 		System.out.println("\n****** Step 4 ******");
@@ -99,7 +98,8 @@ public class Coursework {
 
 		// Step 5
 		System.out.println("\n****** Step 5 ******");
-		List<Row> genres = genrePopularity.select("genre").takeAsList(10); // take top 10 genres (already ordered)
+		List<Row> genres = genrePopularity.select("genre").takeAsList(10);
+		// take top 10 genres (already ordered)
 
 		Dataset<Row> joinedUMG = movieGenres.join(ratings, movieGenres.col("movieId").equalTo(ratings.col("movieId")))
 				.select(ratings.col("userId"), ratings.col("movieId"), movieGenres.col("genre"));
@@ -108,15 +108,21 @@ public class Coursework {
 
 		try {
 			Row user;
-			System.out.println("genre, top_user"); // output header
+			// output header for rows
+			System.out.println(separator);
+			System.out.println(format("genre", "top_user"));
+			System.out.println(separator);
+			
 			for (Row gRow : genres) {
-				// for each genre reduce results to movies of type genre then group on userId
+				// for each genre reduce results to movies of type genre then
+				// group on userId
 				// and count number of appearances
 				user = spark.sql("SELECT userId, count(userId) AS no_reviewed FROM Joined WHERE genre = '"
 						+ gRow.getString(0) + "' GROUP BY userId ORDER BY no_reviewed").takeAsList(1).get(0);
 				// take 1 in a list and get first in list
-				System.out.println(gRow.getString(0) + ":" + user.getInt(0));
+				System.out.println(format(gRow.getString(0), "" + user.getInt(0)));
 			}
+			System.out.println(separator);
 		} catch (Exception e) {
 			System.out.println("Computation likely timed out: " + e);
 			// added in as this happens on own computer
@@ -130,22 +136,29 @@ public class Coursework {
 
 		Dataset<Row> ratingsCount = spark.sql(
 				"SELECT userId, count(userId) AS ratingsCount FROM Ratings GROUP BY userId ORDER BY ratingsCount DESC");
-		ratingsCount.show(5); // get and then show top reviewers to check has worked
+		ratingsCount.show(5); // get and then show top reviewers to check has
+								// worked
 
-		List<Row> topReviewers = ratingsCount.takeAsList(10); // take top 10 reviewers
+		List<Row> topReviewers = ratingsCount.takeAsList(10); // take top 10
+																// reviewers
 		try {
 			Row user;
-			System.out.println("top_user, top_genre"); // output header
+			// output header for rows
+			System.out.println(separator);
+			System.out.println(format("user", "top_genre"));
+			System.out.println(separator);
 			for (Row topReviewer : topReviewers) {
 				user = spark
 						.sql("SELECT genre, count(genre) AS genreCount FROM MovieGenres, Ratings WHERE userId = "
 								+ topReviewer.getInt(0)
 								+ " AND MovieGenres.movieId = Ratings.movieId GROUP BY genre ORDER BY genreCount DESC")
 						.takeAsList(1).get(0);
-				// select count of genre and order by this, then take as list and select 1 to
+				// select count of genre and order by this, then take as list
+				// and select 1 to
 				// get most popular genre
-				System.out.println(user.getString(0));
+				System.out.println(format(topReviewer.getInt(0) + "", user.getString(0)));
 			}
+			System.out.println(separator);
 		} catch (Exception e) {
 			System.out.println("Computation likely timed out:" + e);
 			// added in as this happens on own computer
@@ -154,11 +167,22 @@ public class Coursework {
 		// Step 7
 		System.out.println("\n****** Step 7 ******");
 		// sql has commands to calculate average and variance so these are used
-		// top 10 avg ratings shown likely to have very low variance (or not a number)
-		// as will be one review of 5 (probably)
+		// top 10 avg ratings shown likely to have very low variance (or not a
+		// number) as will be one review of 5 (probably)
 		spark.sql("SELECT movieId, AVG(rating) AS average_rating, variance(rating) AS variance_rating FROM Ratings "
 				+ "GROUP BY movieId ORDER BY average_rating DESC").show(10);
 
+	}
+
+	/**
+	 * Return formatted output of two strings
+	 * 
+	 * @param left
+	 * @param right
+	 * @return
+	 */
+	private static String format(String left, String right) {
+		return String.format("|%18s|%18s|", left, right);
 	}
 
 	/**
