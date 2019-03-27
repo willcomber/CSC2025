@@ -31,7 +31,6 @@ public class Coursework {
 	static JavaSparkContext sc = new JavaSparkContext(conf);
 	static SparkSession spark = SparkSession.builder().appName("Java Spark SQL basic example") //$NON-NLS-1$
 			.config("spark.some.config.option", "some-value").getOrCreate(); //$NON-NLS-1$ //$NON-NLS-2$
-	private static String separator = format("------------------", "------------------");
 
 	public static void main(String[] args) {
 
@@ -80,8 +79,8 @@ public class Coursework {
 		System.out.println("\n****** Step 3 ******");
 		// read in file created in step 2
 		Dataset<Row> movieGenres = spark.read().option("inferSchema", true).option("header", true)
-				.option("multLine", true).option("mode", "DROPMALFORMED").csv(PATH + "/movieGenres.csv"); 
-		
+				.option("multLine", true).option("mode", "DROPMALFORMED").csv(PATH + "/movieGenres.csv");
+
 		movieGenres.createOrReplaceTempView("IdGenre"); // allow sql to use
 														// dataset
 
@@ -109,10 +108,8 @@ public class Coursework {
 		try {
 			Row user;
 			// output header for rows
-			System.out.println(separator);
-			System.out.println(format("genre", "top_user"));
-			System.out.println(separator);
-			
+			System.out.println("<genre, top_user>");
+
 			for (Row gRow : genres) {
 				// for each genre reduce results to movies of type genre then
 				// group on userId
@@ -120,9 +117,8 @@ public class Coursework {
 				user = spark.sql("SELECT userId, count(userId) AS no_reviewed FROM Joined WHERE genre = '"
 						+ gRow.getString(0) + "' GROUP BY userId ORDER BY no_reviewed").takeAsList(1).get(0);
 				// take 1 in a list and get first in list
-				System.out.println(format(gRow.getString(0), "" + user.getInt(0)));
+				System.out.println("<" + gRow.getString(0) + ", " + user.getInt(0) + ">");
 			}
-			System.out.println(separator);
 		} catch (Exception e) {
 			System.out.println("Computation likely timed out: " + e);
 			// added in as this happens on own computer
@@ -136,17 +132,16 @@ public class Coursework {
 
 		Dataset<Row> ratingsCount = spark.sql(
 				"SELECT userId, count(userId) AS ratingsCount FROM Ratings GROUP BY userId ORDER BY ratingsCount DESC");
-		ratingsCount.show(5); // get and then show top reviewers to check has
-								// worked
+		ratingsCount.show(5); // get and then show top 5 reviewers to check has worked
+
+		ratingsCount.createOrReplaceTempView("AllRatingsCount"); // allow to be used in sql
 
 		List<Row> topReviewers = ratingsCount.takeAsList(10); // take top 10
 																// reviewers
 		try {
 			Row user;
 			// output header for rows
-			System.out.println(separator);
-			System.out.println(format("user", "top_genre"));
-			System.out.println(separator);
+			System.out.println("<user, ratingsCount, top_genre>");
 			for (Row topReviewer : topReviewers) {
 				user = spark
 						.sql("SELECT genre, count(genre) AS genreCount FROM MovieGenres, Ratings WHERE userId = "
@@ -156,9 +151,9 @@ public class Coursework {
 				// select count of genre and order by this, then take as list
 				// and select 1 to
 				// get most popular genre
-				System.out.println(format(topReviewer.getInt(0) + "", user.getString(0)));
+				System.out.println(
+						"<" + topReviewer.getInt(0) + ", " + topReviewer.getInt(1) + ", " + user.getString(0) + ">");
 			}
-			System.out.println(separator);
 		} catch (Exception e) {
 			System.out.println("Computation likely timed out:" + e);
 			// added in as this happens on own computer
@@ -172,17 +167,6 @@ public class Coursework {
 		spark.sql("SELECT movieId, AVG(rating) AS average_rating, variance(rating) AS variance_rating FROM Ratings "
 				+ "GROUP BY movieId ORDER BY average_rating DESC").show(10);
 
-	}
-
-	/**
-	 * Return formatted output of two strings
-	 * 
-	 * @param left
-	 * @param right
-	 * @return
-	 */
-	private static String format(String left, String right) {
-		return String.format("|%18s|%18s|", left, right);
 	}
 
 	/**
