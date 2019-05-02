@@ -59,9 +59,30 @@ void send_meta_data(FILE *file,char *output, int sockfd, struct sockaddr_in serv
   
 /* arguments: input file, socket id, internet socket address of the receiver  */
 void send_file_normal(FILE *fp,int sockfd, struct sockaddr_in server)
-{ 
-   /* Replace the following with function implementation */ 
-    fatalerror(__LINE__, "send_file_normal is not implemented");  
+{
+	segment seg;
+	
+	int fileaddr = &fp;
+	int nopackets = file_size(fp)/15;
+	int finalsize = file_size(fp) % nopackets;	
+	int i;
+	
+	for(i = 1; i <= nopackets; i++) {
+		seg.size = 15;               				//size of the payload
+		seg.sq = i;                 				//sequence number
+		seg.s_type type = s_type.TYPE_DATA;        //segment type
+		seg.payload; 								//data
+		seg.checksum = checksum(seq.payload, 15);  //checksum
+	}
+	
+	if(finalsize > 0) {
+		seg.size = finalsize;          					//size of the payload
+		seg.sq = i+1;                 					//sequence number
+		seg.s_type type = s_type.TYPE_DATA;     	   	//segment type
+		seg.payload; 									//data
+		seg.checksum = checksum(seq.payload, finalsize);  //checksum
+	}
+	
 }
 
 
