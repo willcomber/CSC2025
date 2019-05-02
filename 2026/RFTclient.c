@@ -4,6 +4,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <stdbool.h>
+#include <string.h>
  #include <time.h> 
 
 /* error message format for fatalerror - Source Nick Cook*/
@@ -36,7 +37,7 @@ struct sockaddr_in create_server_data(int sockfd , char* host, int port)
 {  
     struct sockaddr_in server; 
 	
-    server.sin_family = sockfd;
+    server.sin_family = AF_INET;
 	server.sin_addr.s_addr = htonl(host);
 	server.sin_port = htons(port);
 	
@@ -47,12 +48,12 @@ struct sockaddr_in create_server_data(int sockfd , char* host, int port)
               port number, structure containing the server internet address */ 
 void send_meta_data(FILE *file,char *output, int sockfd, struct sockaddr_in server)
 { 
-	struct meta_data metaData;
-	metaData.name = output;
-	metaData.size = file_size(file);
+	meta_data metadata;
+	strcpy(metadata.name, output);
+	metadata.size = file_size(file);
 	
 	int val;
-	if ((val=sendto(sockfd, metaData, sizeof(metaData), 0,(struct sockaddr_in*) &server, sizeof(server))<0)
+	if ((val=sendto(sockfd, &metadata, sizeof(metadata), 0,(struct sockaddr*) &server, sizeof(server))<0))
 					    perror("Error sending message\n");
 } 
   
