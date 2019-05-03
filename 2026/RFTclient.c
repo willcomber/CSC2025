@@ -54,35 +54,85 @@ void send_meta_data(FILE *file,char *output, int sockfd, struct sockaddr_in serv
 	
 	int val;
 	if ((val=sendto(sockfd, &metadata, sizeof(metadata), 0,(struct sockaddr*) &server, sizeof(server))<0))
-					    perror("Error sending message\n");
+					    perror("SENDER: Error sending message\n");
 } 
   
 /* arguments: input file, socket id, internet socket address of the receiver  */
 void send_file_normal(FILE *fp,int sockfd, struct sockaddr_in server)
 {
 	segment seg;
+	int MAXSIZE = TOTALCHAR;
+	int nopackets = (file_size(fp)/MAXSIZE);
+	int finalsize = file_size(fp) % MAXSIZE;	
+	int i,val, packetnum = 0, serversize = sizeof(server);
+	char line [MAXSIZE];
+	time_t start, end;
 	
-	int fileaddr = &fp;
-	int nopackets = file_size(fp)/15;
-	int finalsize = file_size(fp) % nopackets;	
-	int i;
+	fseek(fp, 0L, SEEK_SET); // set file to start for read
 	
-	for(i = 1; i <= nopackets; i++) {
-		seg.size = 15;               				//size of the payload
-		seg.sq = i;                 				//sequence number
-		seg.s_type type = s_type.TYPE_DATA;        //segment type
-		seg.payload; 								//data
-		seg.checksum = checksum(seq.payload, 15);  //checksum
+	for(i = 0; i < nopackets; i++) {
+		printf("------------------------------------------------------------------\n");
+		seg.size = MAXSIZE;               			//size of the payload
+		seg.sq = packetnum;            				//sequence number
+		packetnum = (packetnum + 1) % 2;			// switch seq num between 0 and 1
+		seg.type = TYPE_DATA;        				//segment type
+		
+		fread(line, MAXSIZE, 1, fp);			//get data in
+		strcpy(seg.payload, line);					//copy to payload
+		
+		seg.checksum = checksum(seg.payload, MAXSIZE);  //checksum
+		
+		printf("SENDER: Sending segment: (sq:%d, size:%d, checksum:%d, content:'%s')\n", seg.sq, seg.size, seg.checksum, seg.payload);
+		if ((val=sendto(sockfd, &seg, sizeof(seg), 0, (struct sockaddr*) &server, serversize)<0))
+					    perror("Error sending message\n");
+					
+		
+		time(&start);
+		printf("SENDER: Waiting for an ack\n");
+		
+		do {
+			time(&end);
+			val = recvfrom(sockfd, &seg, sizeof(seg),0, (struct sockaddr *)&server, &serversize);
+		} while(difftime(end, start) <= 5 && val < 0);
+		
+		if(val < 0) {
+			perror("SENDER: Reading Stream Message Error\n");
+		}else{
+			printf("SENDER: Ack sq = %d RECIEVED.\n", seg.sq);
+		}
 	}
 	
-	if(finalsize > 0) {
+	if(finalsize > 0) { // extra packet needed  
+		printf("------------------------------------------------------------------\n");
 		seg.size = finalsize;          					//size of the payload
-		seg.sq = i+1;                 					//sequence number
-		seg.s_type type = s_type.TYPE_DATA;     	   	//segment type
-		seg.payload; 									//data
-		seg.checksum = checksum(seq.payload, finalsize);  //checksum
+		seg.sq = packetnum;                 			//sequence number
+		seg.type = TYPE_DATA;     					   	//segment type
+		
+		fread(line, MAXSIZE, 1, fp);				//get data in
+		line[finalsize] = '\0';							// delimiter character
+		strcpy(seg.payload, line);						// copy to payload
+		
+		seg.checksum = checksum(seg.payload, finalsize);  //checksum
+		
+		printf("SENDER: Sending segment: (sq:%d, size:%d, checksum:%d, content:'%s')\n", seg.sq, seg.size, seg.checksum, seg.payload);
+		if ((val=sendto(sockfd, &seg, sizeof(seg), 0, (struct sockaddr*) &server, sizeof(server))<0))
+					    perror("Error sending message\n");	
+					
+		time(&start);
+		printf("SENDER: Waiting for an ack\n");
+		
+		do {
+			time(&end);
+			val = recvfrom(sockfd, &seg, sizeof(seg),0, (struct sockaddr *)&server, &serversize);
+		} while(difftime(end, start) <= 5 && val < 0);
+		
+		if(val < 0) {
+			perror("SENDER: Reading Stream Message Error\n");
+		}else{
+			printf("SENDER: Ack sq = %d RECIEVED.\n", seg.sq);
+		}
 	}
-	
+	printf("------------------------------------------------------------------\n");	
 }
 
 
