@@ -5,7 +5,8 @@
 #include <sys/socket.h>
 #include <stdbool.h>
 #include <string.h>
- #include <time.h> 
+#include <sys/time.h> 
+#include <sys/select.h> 
 
 /* error message format for fatalerror - Source Nick Cook*/
 static const char *ERR_FMT = "%s:%d - %s, errno %d: %s\n";
@@ -60,13 +61,12 @@ void send_meta_data(FILE *file,char *output, int sockfd, struct sockaddr_in serv
 /* arguments: input file, socket id, internet socket address of the receiver  */
 void send_file_normal(FILE *fp,int sockfd, struct sockaddr_in server)
 {
-	segment seg;
+	segment seg, ack;
 	int MAXSIZE = TOTALCHAR;
 	int nopackets = (file_size(fp)/MAXSIZE);
 	int finalsize = file_size(fp) % MAXSIZE;	
 	int i,val, packetnum = 0, serversize = sizeof(server);
 	char line [MAXSIZE];
-	time_t start, end;
 	
 	fseek(fp, 0L, SEEK_SET); // set file to start for read
 	
@@ -84,25 +84,21 @@ void send_file_normal(FILE *fp,int sockfd, struct sockaddr_in server)
 		
 		printf("SENDER: Sending segment: (sq:%d, size:%d, checksum:%d, content:'%s')\n", seg.sq, seg.size, seg.checksum, seg.payload);
 		if ((val=sendto(sockfd, &seg, sizeof(seg), 0, (struct sockaddr*) &server, serversize)<0))
-					    perror("Error sending message\n");
+					    perror("SENDER: Error sending message\n");
 					
-		
-		time(&start);
 		printf("SENDER: Waiting for an ack\n");
 		
-		do {
-			time(&end);
-			val = recvfrom(sockfd, &seg, sizeof(seg),0, (struct sockaddr *)&server, &serversize);
-		} while(difftime(end, start) <= 5 && val < 0);
 		
-		if(val < 0) {
-			perror("SENDER: Reading Stream Message Error\n");
-		}else{
-			printf("SENDER: Ack sq = %d RECIEVED.\n", seg.sq);
-		}
+		do {
+			val = recvfrom(sockfd, &ack, sizeof(ack),0, (struct sockaddr *)&server, &serversize);
+		} while(val != 0); // wait for ack
+		
+		if(ack.sq == seg.sq)
+			printf("SENDER: Ack sq = %d RECIEVED.\n", ack.sq);
+		else perror("invalid ack recived");
 	}
 	
-	if(finalsize > 0) { // extra packet needed  
+	if(finalsize > 0) { // extra packet needed 
 		printf("------------------------------------------------------------------\n");
 		seg.size = finalsize;          					//size of the payload
 		seg.sq = packetnum;                 			//sequence number
@@ -116,22 +112,19 @@ void send_file_normal(FILE *fp,int sockfd, struct sockaddr_in server)
 		
 		printf("SENDER: Sending segment: (sq:%d, size:%d, checksum:%d, content:'%s')\n", seg.sq, seg.size, seg.checksum, seg.payload);
 		if ((val=sendto(sockfd, &seg, sizeof(seg), 0, (struct sockaddr*) &server, sizeof(server))<0))
-					    perror("Error sending message\n");	
+					    perror("SENDER: Error sending message\n");	
 					
-		time(&start);
 		printf("SENDER: Waiting for an ack\n");
 		
 		do {
-			time(&end);
-			val = recvfrom(sockfd, &seg, sizeof(seg),0, (struct sockaddr *)&server, &serversize);
-		} while(difftime(end, start) <= 5 && val < 0);
+			val = recvfrom(sockfd, &ack, sizeof(ack),0, (struct sockaddr *)&server, &serversize); 
+		} while(val != 0); // wait for ack
 		
-		if(val < 0) {
-			perror("SENDER: Reading Stream Message Error\n");
-		}else{
-			printf("SENDER: Ack sq = %d RECIEVED.\n", seg.sq);
-		}
+		if(ack.sq == seg.sq)
+			printf("SENDER: Ack sq = %d RECIEVED.\n", ack.sq);
+		else perror("invalid ack recived");
 	}
+		
 	printf("------------------------------------------------------------------\n");	
 }
 
@@ -139,8 +132,122 @@ void send_file_normal(FILE *fp,int sockfd, struct sockaddr_in server)
  /* arguments: input file, socket id, internet socket address of the receiver  */
 void send_file_with_timeout(FILE *fp,int sockfd, struct sockaddr_in server, float prob_loss)
 { 
-    /* Replace the following with function implementation */ 
-    fatalerror(__LINE__, "send_file_with_timeout is not implemented");  
+    segment seg, ack;
+	int MAXSIZE = TOTALCHAR;
+	int nopackets = (file_size(fp)/MAXSIZE);
+	int finalsize = file_size(fp) % MAXSIZE;	
+	int i,val, packetnum = 0, serversize = sizeof(server), sentcount;
+	char line [MAXSIZE];
+	bool packsent = false;
+	fd_set rset; 	
+	
+	struct timeval tv;
+	
+	fseek(fp, 0L, SEEK_SET); // set file to start for read
+	
+	// bind listener to server with backlog of 10
+	bind(sockfd, (struct sockaddr*)&server, sizeof(server)); 
+    listen(sockfd, 10); 
+	
+	FD_SET(sockfd, &rset);
+	
+	
+	for(i = 0; i < nopackets; i++) {
+		printf("------------------------------------------------------------------\n");
+		packsent = false; // reset variables
+		tv.tv_sec = 5;
+		tv.tv_usec = 0;
+		sentcount = 0;
+	
+		seg.size = MAXSIZE;               			//size of the payload
+		seg.sq = packetnum;            				//sequence number
+		packetnum = (packetnum + 1) % 2;			// switch seq num between 0 and 1
+		seg.type = TYPE_DATA;        				//segment type
+		
+		fread(line, MAXSIZE, 1, fp);			//get data in
+		strcpy(seg.payload, line);					//copy to payload
+		
+		while(packsent == false && sentcount <= 3){
+			sentcount ++;
+			if(isCorrupted(prob_loss)){ // if isCorrupted is true checksum is corrupted and a message is printed
+				seg.checksum =  0;
+				printf(">>>>>>>>Network: segment checksum has been corrupted<<<<<<<<\n");
+			}else {
+				seg.checksum = checksum(seg.payload, MAXSIZE);  // else normal checksum
+			}
+			
+			printf("SENDER: Sending segment: (sq:%d, size:%d, checksum:%d, content:'%s')\n", seg.sq, seg.size, seg.checksum, seg.payload);
+			
+			if ((val=sendto(sockfd, &seg, sizeof(seg), 0, (struct sockaddr*) &server, sizeof(server))>=0)) {
+				printf("SENDER: Waiting for an ack\n");
+			
+				val = select(sockfd + 1, &rset, NULL, NULL, &tv); // block while waiting
+			}
+			if(val == -1) {
+				perror("SENDER: error occured with sendto or select");
+			}else if (val > 0) {
+				packsent = true;
+				printf("SENDER: Ack sq = %d RECIEVED.\n", seg.sq);
+			}else{
+				printf("*****************************");
+				printf("SENDER: TIME OUT: Re-sending the same segment\n");
+			}
+		}
+		if(sentcount == 3){
+			printf("SENDER EXITING");
+			exit(0);
+		}
+	}
+	
+	if(finalsize > 0) { // extra packet needed 
+		printf("------------------------------------------------------------------\n");
+		packsent = false;
+		tv.tv_sec = 5;
+		tv.tv_usec = 0;
+		sentcount = 0;
+		
+		seg.size = finalsize;          					//size of the payload
+		seg.sq = packetnum;                 			//sequence number
+		seg.type = TYPE_DATA;     					   	//segment type
+		
+		fread(line, MAXSIZE, 1, fp);				//get data in
+		line[finalsize] = '\0';							// delimiter character
+		strcpy(seg.payload, line);						// copy to payload
+		
+		while(packsent == false && sentcount <= 3){
+			sentcount ++;
+			
+			if(isCorrupted(prob_loss)){ // if isCorrupted is true checksum is corrupted and a message is printed
+				seg.checksum =  0;
+				printf(">>>>>>>>Network: segment checksum has been corrupted<<<<<<<<\n");
+			}else {
+				seg.checksum = checksum(seg.payload, finalsize);  // else normal checksum set
+			}
+			
+			printf("SENDER: Sending segment: (sq:%d, size:%d, checksum:%d, content:'%s')\n", seg.sq, seg.size, seg.checksum, seg.payload);
+			 
+			if ((val=sendto(sockfd, &seg, sizeof(seg), 0, (struct sockaddr*) &server, sizeof(server)) >= 0)) {			
+				printf("SENDER: Waiting for an ack\n");
+				
+				val = select(sockfd + 1, &rset, NULL, NULL, &tv);
+			}
+			
+			if(val == -1) {
+				perror("select()");
+			}else if (val > 0) {
+				packsent = true;
+				printf("SENDER: Ack sq = %d RECIEVED.\n", seg.sq);
+			}else{
+				printf("*****************************");
+				printf("SENDER: TIME OUT: Re-sending the same segment\n");
+			}
+		}
+		if(sentcount == 3){
+			printf("SENDER EXITING");
+			exit(0);
+		}
+	}
+	printf("------------------------------------------------------------------\n");	 
 }
 
 /**************************************************************************
